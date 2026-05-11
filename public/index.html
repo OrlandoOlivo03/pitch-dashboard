@@ -703,6 +703,92 @@
     margin-top: 2px;
   }
 
+/* ===== VALUE BET STRIP ===== */
+.value-strip {
+  margin: 12px 0;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+}
+.value-strip.value-high {
+  background: linear-gradient(135deg, rgba(52, 211, 153, 0.15), rgba(52, 211, 153, 0.05));
+  border-color: rgba(52, 211, 153, 0.4);
+  box-shadow: 0 0 24px rgba(52, 211, 153, 0.1);
+}
+.value-strip.value-mid {
+  background: linear-gradient(135deg, rgba(52, 211, 153, 0.08), rgba(52, 211, 153, 0.02));
+  border-color: rgba(52, 211, 153, 0.25);
+}
+.value-strip.value-low {
+  background: rgba(251, 191, 36, 0.06);
+  border-color: rgba(251, 191, 36, 0.2);
+}
+.value-strip.value-none {
+  background: var(--bg-surface);
+  border-color: var(--border);
+  opacity: 0.6;
+}
+
+.value-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.value-tag {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: var(--emerald);
+}
+.value-none .value-tag { color: var(--text-mute); }
+.value-low .value-tag { color: var(--amber); }
+
+.value-edge {
+  font-family: 'Instrument Serif', serif;
+  font-size: 24px;
+  font-weight: 500;
+  color: var(--emerald);
+  line-height: 1;
+  font-feature-settings: "tnum";
+}
+.value-high .value-edge {
+  background: linear-gradient(135deg, var(--emerald-soft), var(--emerald));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.value-low .value-edge { color: var(--amber); }
+.value-edge-neutral {
+  font-family: 'Inter', sans-serif;
+  font-size: 11px;
+  color: var(--text-mute);
+}
+
+.value-detail {
+  font-size: 12px;
+  color: var(--text-soft);
+}
+.value-detail strong { color: var(--text); }
+.value-meta {
+  display: block;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--text-mute);
+  margin-top: 4px;
+}
+
+.prob-odds {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--text-mute);
+  margin-top: 4px;
+}
+.prob.is-pick .prob-odds { color: var(--emerald); font-weight: 600; }
+
   /* Confidence chip */
   .conf {
     display: inline-flex;
@@ -1698,6 +1784,35 @@ function renderMatch(f, idx) {
   const rec = f.recommendation;
   const pick1 = rec.pick.code === "1", pickX = rec.pick.code === "X", pick2 = rec.pick.code === "2";
 
+  // 🆕 Sección de Value Bet
+  const bestValue = f.bestValueBet;
+  let valueSection = "";
+  if (bestValue && bestValue.edge > 0) {
+    const edgeClass = bestValue.edge >= 10 ? "value-high" : bestValue.edge >= 5 ? "value-mid" : "value-low";
+    const edgeLabel = bestValue.edge >= 10 ? "💎 VALUE PREMIUM" : bestValue.edge >= 5 ? "⭐ VALUE BET" : "⚪ Edge mínimo";
+    valueSection = `
+      <div class="value-strip ${edgeClass}">
+        <div class="value-header">
+          <span class="value-tag">${edgeLabel}</span>
+          <span class="value-edge">+${bestValue.edge.toFixed(1)}%</span>
+        </div>
+        <div class="value-detail">
+          <strong>${bestValue.selection}</strong> @ ${bestValue.odds.toFixed(2)}
+          <span class="value-meta">Modelo: ${bestValue.modelProb.toFixed(1)}% · Mercado: ${bestValue.marketProb.toFixed(1)}%</span>
+        </div>
+      </div>
+    `;
+  } else if (f.marketOdds) {
+    valueSection = `
+      <div class="value-strip value-none">
+        <div class="value-header">
+          <span class="value-tag">○ Sin value bet</span>
+          <span class="value-edge-neutral">Cuotas alineadas</span>
+        </div>
+      </div>
+    `;
+  }
+
   return `
     <article class="glass match fade" style="animation-delay:${idx * 40}ms" data-id="${f.id}">
       <div class="match-head">
@@ -1706,8 +1821,8 @@ function renderMatch(f, idx) {
           <span class="match-league-name">${lg.name}</span>
         </div>
         ${f.isLive
-  ? `<span class="match-live">EN VIVO ${f.liveMin}'</span>`
-  : `<span class="match-time">${f.date || ''} · ${f.time}</span>`}
+          ? `<span class="match-live">EN VIVO ${f.liveMin}'</span>`
+          : `<span class="match-time">${f.date || ''} · ${f.time}</span>`}
       </div>
 
       <div class="teams">
@@ -1728,20 +1843,25 @@ function renderMatch(f, idx) {
         <div class="prob ${pick1 ? 'is-pick' : ''}">
           <div class="prob-label">1 · Local</div>
           <div class="prob-num">${probs.home.toFixed(0)}%</div>
+          ${f.marketOdds?.home ? `<div class="prob-odds">@${f.marketOdds.home.toFixed(2)}</div>` : ''}
         </div>
         <div class="prob ${pickX ? 'is-pick' : ''}">
           <div class="prob-label">X · Empate</div>
           <div class="prob-num">${probs.draw.toFixed(0)}%</div>
+          ${f.marketOdds?.draw ? `<div class="prob-odds">@${f.marketOdds.draw.toFixed(2)}</div>` : ''}
         </div>
         <div class="prob ${pick2 ? 'is-pick' : ''}">
           <div class="prob-label">2 · Visita</div>
           <div class="prob-num">${probs.away.toFixed(0)}%</div>
+          ${f.marketOdds?.away ? `<div class="prob-odds">@${f.marketOdds.away.toFixed(2)}</div>` : ''}
         </div>
       </div>
 
+      ${valueSection}
+
       <div class="verdict">
         <div>
-          <div class="verdict-label">Veredicto</div>
+          <div class="verdict-label">Veredicto del modelo</div>
           <div class="verdict-pick">${rec.pick.selection}</div>
           <div class="verdict-meta">${rec.pick.market} · ${rec.pick.prob.toFixed(1)}% probabilidad</div>
         </div>
@@ -1764,19 +1884,15 @@ function renderMatches() {
   }
   empty.style.display = "none";
 
-  const sorted = [...filtered].sort((a, b) =>
-    (b.recommendation.confidenceScore - a.recommendation.confidenceScore) ||
-    (b.recommendation.pick.prob - a.recommendation.pick.prob)
-  );
+  // Ordenar: value bets primero, luego por confianza
+  const sorted = [...filtered].sort((a, b) => {
+    const aEdge = a.bestValueBet?.edge || -100;
+    const bEdge = b.bestValueBet?.edge || -100;
+    if (Math.abs(aEdge - bEdge) > 1) return bEdge - aEdge;
+    return (b.recommendation.confidenceScore - a.recommendation.confidenceScore) ||
+           (b.recommendation.pick.prob - a.recommendation.pick.prob);
+  });
   grid.innerHTML = sorted.map((f, i) => renderMatch(f, i)).join("");
-}
-
-function render() {
-  renderLeagueFilters();
-  renderKPIs();
-  renderPicks();
-  renderMatches();
-  attachClickHandlers();
 }
 
 /* ============================================================
@@ -1982,9 +2098,56 @@ function updateClock() {
   document.getElementById("current-time").textContent = `${hh}:${mm}`;
 }
 /* ============================================================
-   BOOT — versión serverless (Vercel)
-   Llama a /api/fixtures (cacheado 30 min en edge)
+   BOOT — v6: Value Betting con cuotas reales
+   /api/fixtures + /api/odds + cálculo de EDGE
    ============================================================ */
+
+// Función auxiliar: convertir cuota decimal a probabilidad implícita
+function impliedProb(decimalOdds) {
+  if (!decimalOdds || decimalOdds < 1.01) return null;
+  return (1 / decimalOdds) * 100;
+}
+
+// Normalizar nombres de equipo para hacer match entre APIs
+function normalizeName(name) {
+  if (!name) return "";
+  return name.toLowerCase()
+    .replace(/\s+fc$/i, "")
+    .replace(/^fc\s+/i, "")
+    .replace(/\s+cf$/i, "")
+    .replace(/^afc\s+/i, "")
+    .replace(/\s+united/i, " united")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// Buscar las cuotas correspondientes a un partido específico
+function findOddsForMatch(homeName, awayName, oddsData) {
+  if (!oddsData?.odds) return null;
+  const normalizedHome = normalizeName(homeName);
+  const normalizedAway = normalizeName(awayName);
+
+  // Búsqueda directa
+  for (const [key, oddsMatch] of Object.entries(oddsData.odds)) {
+    const oHome = normalizeName(oddsMatch.home);
+    const oAway = normalizeName(oddsMatch.away);
+    if (oHome === normalizedHome && oAway === normalizedAway) return oddsMatch;
+  }
+
+  // Búsqueda parcial (contiene)
+  for (const [key, oddsMatch] of Object.entries(oddsData.odds)) {
+    const oHome = normalizeName(oddsMatch.home);
+    const oAway = normalizeName(oddsMatch.away);
+    if (
+      (oHome.includes(normalizedHome) || normalizedHome.includes(oHome)) &&
+      (oAway.includes(normalizedAway) || normalizedAway.includes(oAway))
+    ) {
+      return oddsMatch;
+    }
+  }
+
+  return null;
+}
 
 function formatDate(dateObj) {
   const days = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
@@ -2008,22 +2171,114 @@ function getDayBucket(dateObj) {
   return "later";
 }
 
+/**
+ * CÁLCULO DE VALUE BETS
+ * Compara la probabilidad del modelo con la implícita del mercado.
+ * Edge = probModelo - probMercado
+ * Edge >3% se considera value bet recomendado.
+ */
+function calculateValueBets(prediction, odds) {
+  if (!odds || !odds.odds) return [];
+
+  const probs = prediction.probs;
+  const valueBets = [];
+
+  // 1X2
+  if (odds.odds.home) {
+    const impl = impliedProb(odds.odds.home);
+    const edge = probs.home - impl;
+    valueBets.push({
+      market: "1X2",
+      selection: "Local (1)",
+      modelProb: probs.home,
+      marketProb: impl,
+      odds: odds.odds.home,
+      edge: edge,
+      type: "1x2",
+    });
+  }
+  if (odds.odds.draw) {
+    const impl = impliedProb(odds.odds.draw);
+    const edge = probs.draw - impl;
+    valueBets.push({
+      market: "1X2",
+      selection: "Empate (X)",
+      modelProb: probs.draw,
+      marketProb: impl,
+      odds: odds.odds.draw,
+      edge: edge,
+      type: "1x2",
+    });
+  }
+  if (odds.odds.away) {
+    const impl = impliedProb(odds.odds.away);
+    const edge = probs.away - impl;
+    valueBets.push({
+      market: "1X2",
+      selection: "Visitante (2)",
+      modelProb: probs.away,
+      marketProb: impl,
+      odds: odds.odds.away,
+      edge: edge,
+      type: "1x2",
+    });
+  }
+  if (odds.odds.over25) {
+    const impl = impliedProb(odds.odds.over25);
+    const edge = probs.over25 - impl;
+    valueBets.push({
+      market: "Over/Under 2.5",
+      selection: "Más de 2.5",
+      modelProb: probs.over25,
+      marketProb: impl,
+      odds: odds.odds.over25,
+      edge: edge,
+      type: "ou",
+    });
+  }
+  if (odds.odds.under25) {
+    const impl = impliedProb(odds.odds.under25);
+    const edge = probs.under25 - impl;
+    valueBets.push({
+      market: "Over/Under 2.5",
+      selection: "Menos de 2.5",
+      modelProb: probs.under25,
+      marketProb: impl,
+      odds: odds.odds.under25,
+      edge: edge,
+      type: "ou",
+    });
+  }
+
+  // Ordenar por edge descendente
+  return valueBets.sort((a, b) => b.edge - a.edge);
+}
+
 async function loadRealFixtures() {
-  console.log("📡 Llamando a /api/fixtures...");
+  console.log("📡 Llamando a /api/fixtures + /api/odds en paralelo...");
 
-  const r = await fetch("/api/fixtures");
-  if (!r.ok) throw new Error(`API error: ${r.status}`);
-  const data = await r.json();
+  // Pedimos ambas APIs en paralelo (más rápido)
+  const [fixturesRes, oddsRes] = await Promise.allSettled([
+    fetch("/api/fixtures").then(r => r.ok ? r.json() : Promise.reject(`fixtures ${r.status}`)),
+    fetch("/api/odds").then(r => r.ok ? r.json() : Promise.reject(`odds ${r.status}`)),
+  ]);
 
-  console.log(`✓ Recibidos ${data.matches?.length || 0} partidos`);
-  console.log(`✓ Forma de ${Object.keys(data.teamForms || {}).length} equipos`);
+  const fixturesData = fixturesRes.status === "fulfilled" ? fixturesRes.value : null;
+  const oddsData = oddsRes.status === "fulfilled" ? oddsRes.value : null;
 
-  if (!data.matches || data.matches.length === 0) return [];
+  if (!fixturesData || !fixturesData.matches) {
+    console.error("❌ Sin fixtures");
+    return [];
+  }
+
+  console.log(`✓ ${fixturesData.matches.length} partidos`);
+  console.log(`✓ ${oddsData ? Object.keys(oddsData.odds || {}).length : 0} partidos con cuotas`);
 
   const realFixtures = [];
   const baseGoals = 1.35;
+  let matchedOdds = 0;
 
-  for (const m of data.matches) {
+  for (const m of fixturesData.matches) {
     const code = m.leagueCode;
     if (!code) continue;
 
@@ -2034,8 +2289,8 @@ async function loadRealFixtures() {
       const homeName = m.homeTeam?.name || `Local ${m.id}`;
       const awayName = m.awayTeam?.name || `Visita ${m.id}`;
 
-      const homeStats = data.teamForms?.[m.homeTeam?.id] || { form: ["D","D","D","D","D"], avgFor: 1.3, avgAgainst: 1.3 };
-      const awayStats = data.teamForms?.[m.awayTeam?.id] || { form: ["D","D","D","D","D"], avgFor: 1.3, avgAgainst: 1.3 };
+      const homeStats = fixturesData.teamForms?.[m.homeTeam?.id] || { form: ["D","D","D","D","D"], avgFor: 1.3, avgAgainst: 1.3 };
+      const awayStats = fixturesData.teamForms?.[m.awayTeam?.id] || { form: ["D","D","D","D","D"], avgFor: 1.3, avgAgainst: 1.3 };
 
       TEAMS[homeName] = {
         league: code,
@@ -2053,6 +2308,10 @@ async function loadRealFixtures() {
         form: awayStats.form,
         injuries: [], injuryImpact: 0
       };
+
+      // Buscar cuotas para este partido
+      const matchOdds = findOddsForMatch(homeName, awayName, oddsData);
+      if (matchOdds) matchedOdds++;
 
       const isLive = ["LIVE", "IN_PLAY", "PAUSED"].includes(m.status);
 
@@ -2073,7 +2332,10 @@ async function loadRealFixtures() {
         liveScore: {
           h: m.score?.fullTime?.home ?? m.score?.halfTime?.home ?? 0,
           a: m.score?.fullTime?.away ?? m.score?.halfTime?.away ?? 0
-        }
+        },
+        // 🆕 Cuotas reales y value bets
+        marketOdds: matchOdds ? matchOdds.odds : null,
+        bookmakerCount: matchOdds ? matchOdds.bookmakerCount : 0,
       });
     } catch (err) {
       console.error(`Error procesando partido ${m.id}:`, err);
@@ -2081,8 +2343,22 @@ async function loadRealFixtures() {
   }
 
   realFixtures.sort((a, b) => a.dateRaw - b.dateRaw);
+  console.log(`✓ ${matchedOdds}/${realFixtures.length} partidos cruzados con cuotas`);
   return realFixtures;
 }
+
+// ============================================================
+// EXTENDER LA INICIALIZACIÓN para que cada fixture incluya valueBets
+// ============================================================
+const originalInit = window.init;
+window.init = function() {
+  originalInit();
+  // Agregar value bets a cada fixture (después de calcular predictions)
+  state.fixtures.forEach(f => {
+    f.valueBets = calculateValueBets(f.prediction, { odds: f.marketOdds });
+    f.bestValueBet = f.valueBets.length > 0 ? f.valueBets[0] : null;
+  });
+};
 
 window.getFiltered = function() {
   return state.fixtures.filter(f => {
@@ -2093,16 +2369,19 @@ window.getFiltered = function() {
       if (state.filters.time === "after" && f.dayBucket !== "after") return false;
     }
     if (state.filters.market !== "all" && f.recommendation.pick.type !== state.filters.market) return false;
-    if (state.filters.conf === "high" && f.recommendation.confidence !== "Alta") return false;
-    if (state.filters.conf === "medium" && f.recommendation.confidenceScore < 2) return false;
+    // Filtros de value
+    if (state.filters.conf === "value3" && (!f.bestValueBet || f.bestValueBet.edge < 3)) return false;
+    if (state.filters.conf === "value5" && (!f.bestValueBet || f.bestValueBet.edge < 5)) return false;
+    if (state.filters.conf === "value10" && (!f.bestValueBet || f.bestValueBet.edge < 10)) return false;
     return true;
   });
 };
 
 async function boot() {
   document.getElementById("kpi-total").textContent = "...";
-  document.getElementById("date-string").textContent = "CARGANDO PARTIDOS REALES...";
+  document.getElementById("date-string").textContent = "CARGANDO PARTIDOS Y CUOTAS REALES...";
 
+  // Cambiar filtros: añadir value bets
   const timeFilter = document.getElementById("filter-time");
   if (timeFilter) {
     timeFilter.innerHTML = `
@@ -2110,6 +2389,15 @@ async function boot() {
       <button class="chip" data-time="today">Hoy</button>
       <button class="chip" data-time="tomorrow">Mañana</button>
       <button class="chip" data-time="after">Pasado mañana</button>
+    `;
+  }
+  const confFilter = document.getElementById("filter-conf");
+  if (confFilter) {
+    confFilter.innerHTML = `
+      <button class="chip active" data-conf="all">Todas</button>
+      <button class="chip" data-conf="value3">Value +3%</button>
+      <button class="chip" data-conf="value5">Value +5%</button>
+      <button class="chip" data-conf="value10">Value +10%</button>
     `;
   }
 
@@ -2120,7 +2408,7 @@ async function boot() {
       FIXTURES.length = 0;
       realFixtures.forEach(f => FIXTURES.push(f));
       loadedReal = true;
-      console.log(`%c✅ ${realFixtures.length} partidos REALES cargados`, "color:#34d399; font-weight:bold");
+      console.log(`%c✅ ${realFixtures.length} partidos REALES + cuotas`, "color:#34d399; font-weight:bold");
     }
   } catch (err) {
     console.error("Error API:", err);
@@ -2136,6 +2424,9 @@ async function boot() {
   }
 
   setInterval(updateClock, 60000);
+
+  // 🔧 ARREGLO DEL LOOP: refresca SOLO cada 10 minutos
+  // (era cada 5 min pero estaba en loop por errores)
   setInterval(async () => {
     try {
       const fresh = await loadRealFixtures();
@@ -2143,11 +2434,12 @@ async function boot() {
         FIXTURES.length = 0;
         fresh.forEach(f => FIXTURES.push(f));
         init(); render();
+        console.log("🔄 Datos refrescados");
       }
-    } catch (err) { console.error(err); }
-  }, 5 * 60 * 1000);
+    } catch (err) { console.error("Refresh error:", err); }
+  }, 10 * 60 * 1000); // 10 minutos
 
-  console.log("%c§ Pitch online (serverless)", "color:#34d399; font-family:serif; font-style:italic; font-size:16px;");
+  console.log("%c§ Pitch v6 — Value Betting online", "color:#34d399; font-family:serif; font-style:italic; font-size:16px;");
 }
 
 boot();
