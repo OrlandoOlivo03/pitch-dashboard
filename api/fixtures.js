@@ -1,10 +1,8 @@
 /**
  * /api/fixtures
  *
- * Versión 2 — Resistente a rate limits:
- * - Caché agresivo: 30 min para fixtures, sigue funcionando aunque falle
- * - Tolerancia a 429: si una liga falla, devuelve las demás
- * - No rompe la respuesta completa si una llamada falla
+ * Versión 3 — Rango ampliado a 14 días para evitar "sin partidos"
+ * cuando hay temporadas en pausa.
  */
 
 const COMPETITION_NAME_TO_CODE = {
@@ -44,7 +42,7 @@ async function callAPI(url, token, retries = 1) {
     }
     if (r.status === 429) {
       console.warn(`⚠️ 429 final from ${url} — skipping`);
-      return null; // Devuelve null en lugar de tirar error
+      return null;
     }
     throw new Error(`HTTP ${r.status} from ${url}`);
   }
@@ -102,28 +100,24 @@ function buildTeamFormsFromMatches(matches) {
 }
 
 export default async function handler(req, res) {
-  // Caché edge agresivo: 30 min de respuesta válida, 10 min de revalidación
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Cache-Control", "s-maxage=1800, stale-while-revalidate=600");
 
   const token = process.env.FOOTBALL_DATA_TOKEN;
   if (!token) {
-    return res.status(500).json({
-      error: "FOOTBALL_DATA_TOKEN no configurado",
-    });
+    return res.status(500).json({ error: "FOOTBALL_DATA_TOKEN no configurado" });
   }
 
   try {
-    // 1) Partidos próximos (7 días)
+    // ✨ AMPLIADO: 14 días en lugar de 7 para garantizar partidos
     const today = new Date();
-    const nextWeek = new Date();
-    nextWeek.setDate(today.getDate() + 7);
+    const future = new Date();
+    future.setDate(today.getDate() + 14);
 
-    const matchesURL = `https://api.football-data.org/v4/matches?dateFrom=${toISO(today)}&dateTo=${toISO(nextWeek)}`;
+    const matchesURL = `https://api.football-data.org/v4/matches?dateFrom=${toISO(today)}&dateTo=${toISO(future)}`;
     const upcoming = await callAPI(matchesURL, token);
 
     if (!upcoming) {
-      // Si esto falla, devolvemos respuesta vacía pero válida
       return res.status(200).json({
         generatedAt: new Date().toISOString(),
         matches: [],
@@ -136,7 +130,8 @@ export default async function handler(req, res) {
       m => COMPETITION_NAME_TO_CODE[m.competition.name]
     );
 
-    // 2) Forma por liga (cacheado por separado, tolerante a fallos)
+    console.log(`📅 Encontrados ${validMatches.length} partidos en próximos 14 días`);
+
     const leaguesNeeded = new Set();
     validMatches.forEach(m => {
       leaguesNeeded.add(COMPETITION_NAME_TO_CODE[m.competition.name]);
@@ -160,7 +155,6 @@ export default async function handler(req, res) {
         const data = await callAPI(url, token);
 
         if (data === null) {
-          // Rate limit en esta liga — la saltamos pero seguimos
           leaguesSkipped++;
           console.warn(`⏭️ Saltando ${leagueCode} por rate limit`);
         } else {
@@ -169,7 +163,6 @@ export default async function handler(req, res) {
           leaguesLoaded++;
         }
 
-        // Pausa entre llamadas para respetar rate limit
         await sleep(7500);
       } catch (err) {
         console.warn(`Error loading ${leagueCode}:`, err.message);
@@ -177,7 +170,6 @@ export default async function handler(req, res) {
       }
     }
 
-    // 3) Devolver respuesta (aunque algunas ligas hayan fallado)
     return res.status(200).json({
       generatedAt: new Date().toISOString(),
       leaguesLoaded,
@@ -206,7 +198,6 @@ export default async function handler(req, res) {
     });
   } catch (err) {
     console.error("Error in /api/fixtures:", err);
-    // Aún así devolvemos 200 con datos parciales en lugar de 500
     return res.status(200).json({
       generatedAt: new Date().toISOString(),
       matches: [],
