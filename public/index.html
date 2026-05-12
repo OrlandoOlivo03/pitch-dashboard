@@ -1937,6 +1937,66 @@ async function loadRealFixtures() {
 }
 
 // ============================================================
+// SAVE PICKS TO SUPABASE
+// ============================================================
+async function savePicksToDatabase() {
+  // Recopilar todos los value bets del estado actual
+  const picksToSave = [];
+
+  state.fixtures.forEach(f => {
+    if (!f.valueBets || f.valueBets.length === 0) return;
+
+    // Para cada value bet con edge positivo significativo
+    f.valueBets.forEach(vb => {
+      if (vb.edge >= 3.0) {
+        picksToSave.push({
+          matchId: f.id,
+          matchDate: f.dateRaw.toISOString(),
+          league: f.league,
+          homeTeam: f.home,
+          awayTeam: f.away,
+          market: vb.market,
+          selection: vb.selection,
+          selectionCode: vb.type === '1x2'
+            ? (vb.selection.includes('Local') ? '1' : vb.selection.includes('Empate') ? 'X' : '2')
+            : vb.selection.includes('Más') ? 'O2.5'
+            : vb.selection.includes('Menos') ? 'U2.5'
+            : vb.selection.includes('Sí') ? 'BTTS_Y'
+            : 'BTTS_N',
+          modelProb: vb.modelProb,
+          marketProb: vb.marketProb,
+          odds: vb.odds,
+          edge: vb.edge
+        });
+      }
+    });
+  });
+
+  if (picksToSave.length === 0) {
+    console.log('💾 No hay value bets nuevos para guardar');
+    return;
+  }
+
+  try {
+    const response = await fetch('/api/save-picks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ picks: picksToSave })
+    });
+
+    const result = await response.json();
+
+    if (response.ok) {
+      console.log(`%c💾 ${result.message}`, 'color:#34d399; font-weight:bold');
+    } else {
+      console.error('Error guardando:', result.error);
+    }
+  } catch (err) {
+    console.error('Error en save-picks:', err);
+  }
+}
+
+// ============================================================
 // BOOT
 // ============================================================
 async function boot() {
@@ -1961,6 +2021,10 @@ async function boot() {
     render();
     updateClock();
     console.log("%c✅ Dashboard renderizado", "color:#34d399");
+
+    // 🆕 Guardar value bets en Supabase (después de renderizar)
+    savePicksToDatabase();
+
   } catch (err) {
     console.error("❌ Error renderizando:", err);
   }
@@ -1976,6 +2040,7 @@ async function boot() {
         fresh.forEach(f => FIXTURES.push(f));
         init();
         render();
+        savePicksToDatabase(); // 🆕 También en cada refresh
         console.log("🔄 Datos refrescados");
       }
     } catch (err) {
@@ -1983,7 +2048,7 @@ async function boot() {
     }
   }, 10 * 60 * 1000);
 
-  console.log("%c§ Pitch v6 — Value Betting online", "color:#34d399; font-family:serif; font-style:italic; font-size:16px;");
+  console.log("%c§ Pitch v7 — Tracking activado", "color:#34d399; font-family:serif; font-style:italic; font-size:16px;");
 }
 
 // Arrancar cuando el DOM esté listo
