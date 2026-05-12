@@ -1,13 +1,10 @@
 /**
  * /api/fixtures
- * 
- * Función serverless que se ejecuta en Vercel.
- * Reemplaza el proxy local. Trae:
- *   - Partidos próximos (7 días)
- *   - Forma real de cada equipo (1 call por liga)
- * 
- * Cacheado 30 min en Vercel Edge → 1 visita real al API por intervalo,
- * sin importar cuántos usuarios visiten el dashboard.
+ *
+ * Versión 2 — Resistente a rate limits:
+ * - Caché agresivo: 30 min para fixtures, sigue funcionando aunque falle
+ * - Tolerancia a 429: si una liga falla, devuelve las demás
+ * - No rompe la respuesta completa si una llamada falla
  */
 
 const COMPETITION_NAME_TO_CODE = {
@@ -36,10 +33,21 @@ function toISO(date) {
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-async function callAPI(url, token) {
-  const r = await fetch(url, { headers: { "X-Auth-Token": token } });
-  if (!r.ok) throw new Error(`HTTP ${r.status} from ${url}`);
-  return await r.json();
+async function callAPI(url, token, retries = 1) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const r = await fetch(url, { headers: { "X-Auth-Token": token } });
+    if (r.ok) return await r.json();
+    if (r.status === 429 && attempt < retries) {
+      console.warn(`⏳ 429 hit, waiting 12s before retry...`);
+      await sleep(12000);
+      continue;
+    }
+    if (r.status === 429) {
+      console.warn(`⚠️ 429 final from ${url} — skipping`);
+      return null; // Devuelve null en lugar de tirar error
+    }
+    throw new Error(`HTTP ${r.status} from ${url}`);
+  }
 }
 
 function buildTeamFormsFromMatches(matches) {
@@ -94,14 +102,14 @@ function buildTeamFormsFromMatches(matches) {
 }
 
 export default async function handler(req, res) {
-  // CORS y caché edge
+  // Caché edge agresivo: 30 min de respuesta válida, 10 min de revalidación
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Cache-Control", "s-maxage=1800, stale-while-revalidate=600");
 
   const token = process.env.FOOTBALL_DATA_TOKEN;
   if (!token) {
     return res.status(500).json({
-      error: "FOOTBALL_DATA_TOKEN no configurado en Vercel Environment Variables"
+      error: "FOOTBALL_DATA_TOKEN no configurado",
     });
   }
 
@@ -113,11 +121,22 @@ export default async function handler(req, res) {
 
     const matchesURL = `https://api.football-data.org/v4/matches?dateFrom=${toISO(today)}&dateTo=${toISO(nextWeek)}`;
     const upcoming = await callAPI(matchesURL, token);
+
+    if (!upcoming) {
+      // Si esto falla, devolvemos respuesta vacía pero válida
+      return res.status(200).json({
+        generatedAt: new Date().toISOString(),
+        matches: [],
+        teamForms: {},
+        note: "Rate limit hit on fixtures call"
+      });
+    }
+
     const validMatches = (upcoming.matches || []).filter(
       m => COMPETITION_NAME_TO_CODE[m.competition.name]
     );
 
-    // 2) Forma por liga (5 calls máx)
+    // 2) Forma por liga (cacheado por separado, tolerante a fallos)
     const leaguesNeeded = new Set();
     validMatches.forEach(m => {
       leaguesNeeded.add(COMPETITION_NAME_TO_CODE[m.competition.name]);
@@ -129,23 +148,40 @@ export default async function handler(req, res) {
     dateFrom.setDate(dateFrom.getDate() - 60);
     const range = `dateFrom=${toISO(dateFrom)}&dateTo=${toISO(dateTo)}`;
 
+    let leaguesLoaded = 0;
+    let leaguesSkipped = 0;
+
     for (const leagueCode of leaguesNeeded) {
       const apiCode = COMPETITION_API_CODES[leagueCode];
       if (!apiCode) continue;
+
       try {
         const url = `https://api.football-data.org/v4/competitions/${apiCode}/matches?status=FINISHED&${range}`;
         const data = await callAPI(url, token);
-        const teamData = buildTeamFormsFromMatches(data.matches || []);
-        Object.assign(allTeamForms, teamData);
-        await sleep(6500); // respeta rate limit (10/min)
+
+        if (data === null) {
+          // Rate limit en esta liga — la saltamos pero seguimos
+          leaguesSkipped++;
+          console.warn(`⏭️ Saltando ${leagueCode} por rate limit`);
+        } else {
+          const teamData = buildTeamFormsFromMatches(data.matches || []);
+          Object.assign(allTeamForms, teamData);
+          leaguesLoaded++;
+        }
+
+        // Pausa entre llamadas para respetar rate limit
+        await sleep(7500);
       } catch (err) {
         console.warn(`Error loading ${leagueCode}:`, err.message);
+        leaguesSkipped++;
       }
     }
 
-    // 3) Devolver datos crudos al frontend (él aplica el modelo)
+    // 3) Devolver respuesta (aunque algunas ligas hayan fallado)
     return res.status(200).json({
       generatedAt: new Date().toISOString(),
+      leaguesLoaded,
+      leaguesSkipped,
       matches: validMatches.map(m => ({
         id: m.id,
         competitionName: m.competition.name,
@@ -169,6 +205,13 @@ export default async function handler(req, res) {
       teamForms: allTeamForms,
     });
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    console.error("Error in /api/fixtures:", err);
+    // Aún así devolvemos 200 con datos parciales en lugar de 500
+    return res.status(200).json({
+      generatedAt: new Date().toISOString(),
+      matches: [],
+      teamForms: {},
+      error: err.message
+    });
   }
 }
