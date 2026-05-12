@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Football intelligence dashboard with real data and value betting analysis",
   "private": true,
+  "type": "module",
   "engines": {
     "node": ">=18"
   },
